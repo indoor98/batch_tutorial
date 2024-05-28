@@ -2,13 +2,21 @@ package com.tutorial.batchflow.config;
 
 import com.tutorial.batchflow.decider.MyJobExecutionDecider;
 import com.tutorial.batchflow.domain.*;
+import com.tutorial.batchflow.listener.MyStepExecutionListener;
 import com.tutorial.batchflow.processor.FilterProductItemProcessor;
 import com.tutorial.batchflow.processor.TransformProductItemProcessor;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.StepExecutionListener;
+import org.springframework.batch.core.job.builder.FlowBuilder;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.flow.Flow;
+import org.springframework.batch.core.job.flow.JobExecutionDecider;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemReader;
 import org.springframework.batch.item.ItemWriter;
@@ -23,11 +31,13 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.batch.item.support.CompositeItemProcessor;
 import org.springframework.batch.item.validator.BeanValidatingItemProcessor;
 import org.springframework.batch.item.validator.ValidatingItemProcessor;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
@@ -37,155 +47,141 @@ import java.util.List;
 @Configuration
 public class BatchConfiguration {
 
-    @Autowired
-    public DataSource dataSource;
-
-
     @Bean
-    public ItemProcessor<Product, OSProduct> transformProductItemProcessor() {
-        return new TransformProductItemProcessor();
+    public StepExecutionListener myStepExecutionListener() {
+        return new MyStepExecutionListener();
     }
 
     @Bean
-    public ItemProcessor<Product, Product> filterProductItemProcessor() {
-        return new FilterProductItemProcessor();
-    }
-
-    @Bean
-    public ValidatingItemProcessor<Product> validatingItemProcessor() {
-        ValidatingItemProcessor<Product> validatingItemProcessor = new ValidatingItemProcessor<>( new ProductValidator() );
-        validatingItemProcessor.setFilter(true); // Job may not fail even if not valid
-        return validatingItemProcessor;
-    }
-
-
-    @Bean
-    public MyJobExecutionDecider myStepExecutionListener() {
+    public JobExecutionDecider decider() {
         return new MyJobExecutionDecider();
     }
 
     @Bean
-    public MyJobExecutionDecider myJobExecutionDecider() {
-        return new MyJobExecutionDecider();
-    }
+    public Step step1(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step1", jobRepository).tasklet(new Tasklet() {
 
-
-    @Bean
-    public ItemReader<Product> flatFileItemReader() {
-        FlatFileItemReader<Product> itemReader = new FlatFileItemReader<>();
-        itemReader.setLinesToSkip(1);
-        itemReader.setResource(new ClassPathResource("/data/product_details.csv"));
-
-        DefaultLineMapper<Product> lineMapper = new DefaultLineMapper<>();
-
-        DelimitedLineTokenizer lineTokenizer = new DelimitedLineTokenizer();
-        lineTokenizer.setNames("product_id", "product_name", "product_category", "product_price");
-
-        lineMapper.setLineTokenizer(lineTokenizer);
-        lineMapper.setFieldSetMapper(new ProductFieldSetMapper());
-
-        itemReader.setLineMapper(lineMapper);
-        return itemReader;
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("step1 executed on thread " + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
     }
 
     @Bean
-    public ItemReader<Product> jdbcCursorItemReader() {
-        JdbcCursorItemReader<Product> itemReader = new JdbcCursorItemReader<>();
-        itemReader.setDataSource(dataSource);
-        itemReader.setSql("SELECT * FROM product_details ORDER BY product_id"); // order by 안쓰면 순서 무작위임
-        itemReader.setRowMapper(new ProductRowMapper() );
-        return itemReader;
-    }
+    public Step step2(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step2", jobRepository).tasklet(new Tasklet() {
 
-
-
-    @Bean
-    public ItemReader<Product> jdbcPagingItemReader() throws Exception {
-        JdbcPagingItemReader<Product> itemReader = new JdbcPagingItemReader<>();
-        itemReader.setDataSource(dataSource);
-
-        SqlPagingQueryProviderFactoryBean factory = new SqlPagingQueryProviderFactoryBean();
-        factory.setDataSource(dataSource);
-        factory.setSelectClause("SELECT product_id, product_name, product_category, product_price");
-        factory.setFromClause("FROM product_details");
-        factory.setSortKey("product_id"); // SortKey Should be unique
-
-        itemReader.setQueryProvider(factory.getObject());
-        itemReader.setRowMapper(new ProductRowMapper());
-        itemReader.setPageSize(3); //Pagesize == chunk size하는 것을 권장
-
-        return itemReader;
-    }
-    @Bean
-    public ItemWriter<Product> flatFIleItemWriter() {
-        FlatFileItemWriter<Product> itemWriter = new FlatFileItemWriter<>();
-        itemWriter.setResource(new FileSystemResource("batchchunk/src/main/resources/data/Product_Details_Output.csv"));
-
-        DelimitedLineAggregator<Product> lineAggregator = new DelimitedLineAggregator<>();
-        lineAggregator.setDelimiter(","); // 구분자
-
-        BeanWrapperFieldExtractor<Product> fieldExtractor = new BeanWrapperFieldExtractor<>();
-        fieldExtractor.setNames(new String[] {"productId", "productName", "productCategory", "productPrice"});
-
-        lineAggregator.setFieldExtractor(fieldExtractor);
-
-        itemWriter.setLineAggregator(lineAggregator);
-        return itemWriter;
-    }
-
-//    @Bean
-//    public JdbcBatchItemWriter<Product> jdbcBatchItemWriter() {
-//        JdbcBatchItemWriter<Product> itemWriter = new JdbcBatchItemWriter<>();
-//        itemWriter.setDataSource(dataSource);
-//        itemWriter.setSql("INSERT INTO product_details_output VALUES(:productId, :productName, :productCategory, :productPrice)");
-//        itemWriter.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>());
-//
-//        return itemWriter;
-//    }
-
-    @Bean
-    public JdbcBatchItemWriter<OSProduct> jdbcBatchItemWriter() {
-        JdbcBatchItemWriter<OSProduct> itemWriter = new JdbcBatchItemWriter<>();
-        itemWriter.setDataSource(dataSource);
-        itemWriter.setSql("INSERT INTO os_product_details VALUES(:productId, :productName, :productCategory, :productPrice, :taxPercent, :sku, :shippingRate)");
-        itemWriter.setItemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>());
-
-        return itemWriter;
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("step2 executed on thread" + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
     }
 
     @Bean
-    public BeanValidatingItemProcessor<Product> validateProductItemProccessor() {
-        BeanValidatingItemProcessor<Product> beanValidatingItemProcessor = new BeanValidatingItemProcessor<>();
-        beanValidatingItemProcessor.setFilter(true);
-        return beanValidatingItemProcessor;
+    public Step step3(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step3", jobRepository).tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("step3 executed on thread" + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
     }
 
     @Bean
-    public CompositeItemProcessor<Product, OSProduct> itemProcessor() {
-        CompositeItemProcessor<Product, OSProduct> itemProcessor = new CompositeItemProcessor<>();
-        List itemProcessors = new ArrayList();
-        itemProcessors.add(validateProductItemProccessor());
-        itemProcessors.add(filterProductItemProcessor());
-        itemProcessors.add(transformProductItemProcessor());
-        itemProcessor.setDelegates(itemProcessors);
-        return itemProcessor;
+    public Step step4(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step4", jobRepository).tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("step4 executed on thread " + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
     }
 
     @Bean
-    public Step step1(JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
-        return new StepBuilder("chunkBasedStep1", jobRepository)
-                .<Product, OSProduct>chunk(3, transactionManager)
-                .reader(jdbcPagingItemReader())
-                .processor(itemProcessor())
-                .writer(jdbcBatchItemWriter())
-                .build();
+    public Step step5(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step5", jobRepository).tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                boolean isFailure = false;
+                if(isFailure) {
+                    throw new Exception("Test Exception");
+                }
+
+                System.out.println("step5 executed on thread" + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
     }
 
     @Bean
-    public Job firstJob(JobRepository jobRepository, PlatformTransactionManager transactionManager) throws Exception {
+    public Step step6(JobRepository jobRepository, PlatformTransactionManager transactionManger) {
+        return new StepBuilder("step6", jobRepository).tasklet(new Tasklet() {
+
+            @Override
+            public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+                System.out.println("step6 executed on thread " + Thread.currentThread().getName());
+                return RepeatStatus.FINISHED;
+            }
+        }, transactionManger).build();
+    }
+
+    @Bean
+    public Step job3Step(JobRepository jobRepository, Job job3) {
+        return new StepBuilder("job3Step", jobRepository).job(job3).build();
+    }
+
+    @Bean
+    public Flow flow1(Step step3, Step step4) {
+        FlowBuilder<Flow> flowBuilder = new FlowBuilder<>("flow1");
+        flowBuilder.start(step3)
+                .next(step4)
+                .end();
+        return flowBuilder.build();
+    }
+
+    @Bean
+    public Flow flow2(Step step5, Step step6) {
+        FlowBuilder<Flow> flowBuilder = new FlowBuilder<>("flow2");
+        flowBuilder.start(step5)
+                .next(step6)
+                .end();
+        return flowBuilder.build();
+    }
+
+    @Bean
+    public Job job1(JobRepository jobRepository, Step step1, Step step2, Flow flow1) {
         return new JobBuilder("job1", jobRepository)
-                .start(step1(jobRepository, transactionManager))
+                .start(step1)
+                .next(step2)
+                .on("COMPLETED").to(flow1)
+                .end()
                 .build();
     }
 
+    @Bean
+    public Job job2(JobRepository jobRepository, Flow flow1, Flow flow2) {
+        return new JobBuilder("job2", jobRepository)
+                .start(flow1)
+                .split(new SimpleAsyncTaskExecutor())
+                .add(flow2)
+                .end()
+                .build();
+    }
+
+    @Bean
+    public Job job3(JobRepository jobRepository, Step step5, Step step6) {
+        return new JobBuilder("job3", jobRepository)
+                .start(step5)
+                .next(step6)
+                .build();
+    }
 }
