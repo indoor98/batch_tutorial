@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/batch_tutorial.iml" filepath="$PROJECT_DIR$/.idea/batch_tutorial.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/batchchunk.main.iml" filepath="$PROJECT_DIR$/.idea/modules/batchchunk.main.iml" />
     </modules>
   </component>
 </project>

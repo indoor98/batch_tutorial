@@ -1,15 +1,11 @@
-package com.tutorial.batchchunk.config;
+package com.tutorial.batchflow.config;
 
-import com.tutorial.batchchunk.decider.MyJobExecutionDecider;
-import com.tutorial.batchchunk.domain.*;
-import com.tutorial.batchchunk.processor.FilterProductItemProcessor;
-import com.tutorial.batchchunk.processor.TransformProductItemProcessor;
-import com.tutorial.batchchunk.reader.ProductNameItemReader;
+import com.tutorial.batchflow.decider.MyJobExecutionDecider;
+import com.tutorial.batchflow.domain.*;
+import com.tutorial.batchflow.processor.FilterProductItemProcessor;
+import com.tutorial.batchflow.processor.TransformProductItemProcessor;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
-import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
-import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
@@ -60,21 +56,6 @@ public class BatchConfiguration {
         ValidatingItemProcessor<Product> validatingItemProcessor = new ValidatingItemProcessor<>( new ProductValidator() );
         validatingItemProcessor.setFilter(true); // Job may not fail even if not valid
         return validatingItemProcessor;
-    }
-
-
-    @Bean
-    public ItemReader<String> itemReader() {
-        List<String> productList = new ArrayList<>();
-        productList.add("Product1");
-        productList.add("Product2");
-        productList.add("Product3");
-        productList.add("Product4");
-        productList.add("Product5");
-        productList.add("Product6");
-        productList.add("Product7");
-        productList.add("Product8");
-        return new ProductNameItemReader(productList);
     }
 
 

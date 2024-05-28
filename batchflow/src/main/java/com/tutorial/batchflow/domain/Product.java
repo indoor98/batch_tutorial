@@ -1,4 +1,4 @@
-package com.tutorial.batchchunk.domain;
+package com.tutorial.batchflow.domain;
 
 
 import jakarta.validation.constraints.Max;
